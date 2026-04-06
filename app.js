@@ -151,7 +151,7 @@ app.post(
 
       // Texto de la barra
       const headerFontSize = Math.max(5, headerH * 0.5);
-      pdfPage.drawText('✦ DOCUMENTO FIRMADO DIGITALMENTE', {
+      pdfPage.drawText('* DOCUMENTO FIRMADO DIGITALMENTE', {
         x: sigX + 7,
         y: sigY + sigH - headerH + (headerH - headerFontSize) / 2 - 1,
         size: headerFontSize,
@@ -167,8 +167,6 @@ app.post(
       const rows = [
         { label: 'Firmado por',  value: toWinAnsi(certCN) },
         { label: 'Fecha / Hora', value: `${dateStr}  ${timeStr}` },
-        ...(reason   ? [{ label: 'Razon',      value: toWinAnsi(reason) }]   : []),
-        ...(location ? [{ label: 'Ubicacion',  value: toWinAnsi(location) }] : []),
         ...(certIssuer ? [{ label: 'Emisor',   value: toWinAnsi(certIssuer) }] : []),
         ...(certExpiry ? [{ label: 'Vigencia', value: `Hasta ${certExpiry}` }] : []),
       ];
@@ -191,8 +189,8 @@ app.post(
           color: cBlue,
         });
 
-        let val = row.value || '—';
-        if (val.length > maxChars) val = val.substring(0, maxChars - 1) + '…';
+        let val = row.value || '-';
+        if (val.length > maxChars) val = val.substring(0, maxChars - 1) + '.';
 
         pdfPage.drawText(val, {
           x: sigX + paddingX,

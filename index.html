@@ -473,25 +473,7 @@
         </div>
       </div>
 
-      <!-- ── 3. Datos de la firma ──────────────────── -->
-      <div class="form-section">
-        <div class="section-title">③ Datos de la firma</div>
-
-        <div class="field">
-          <label>Nombre del firmante</label>
-          <input type="text" id="signer-name" placeholder="Juan Pérez" />
-        </div>
-        <div class="field">
-          <label>Razón / Motivo</label>
-          <input type="text" id="reason" placeholder="Aprobación del documento" />
-        </div>
-        <div class="field">
-          <label>Ubicación</label>
-          <input type="text" id="location" placeholder="Quito, Ecuador" />
-        </div>
-      </div>
-
-      <!-- ── 4. Acción ──────────────────────────────── -->
+      <!-- ── 3. Acción ──────────────────────────────── -->
       <div class="form-section">
         <button class="btn-sign" id="btn-sign" disabled>
           <span class="btn-icon">✍️</span>
@@ -745,9 +727,6 @@
         formData.append('pdf',        state.pdfFile);
         formData.append('p12',        state.p12File);
         formData.append('password',   document.getElementById('cert-password').value);
-        formData.append('signerName', document.getElementById('signer-name').value || 'Firmante');
-        formData.append('reason',     document.getElementById('reason').value);
-        formData.append('location',   document.getElementById('location').value);
         formData.append('page',       state.currentPage);
         formData.append('x',          state.sigPos.xN.toFixed(6));
         formData.append('y',          state.sigPos.yN.toFixed(6));
