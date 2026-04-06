@@ -9,6 +9,14 @@ const path    = require('path');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const forge   = require('node-forge');
 
+// Normaliza texto para compatibilidad WinAnsi (pdf-lib Standard Fonts)
+function toWinAnsi(str = '') {
+  return (str + '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')   // á→a, é→e, ñ→n, ü→u …
+    .replace(/[^\x00-\xFF]/g, '?');    // cualquier otro char fuera de Latin-1
+}
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -56,7 +64,7 @@ app.post(
       } = req.body;
 
       // ── 2. Parsear .p12 para extraer nombre del certificado ──
-      let certCN      = signerName;
+      let certCN      = toWinAnsi(signerName);
       let certIssuer  = '';
       let certExpiry  = '';
 
@@ -72,8 +80,8 @@ app.post(
           const cert   = bags[0].cert;
           const cn     = cert.subject.getField('CN');
           const issuer = cert.issuer.getField('CN') || cert.issuer.getField('O');
-          if (cn)     certCN     = cn.value;
-          if (issuer) certIssuer = issuer.value;
+          if (cn)     certCN     = toWinAnsi(cn.value);
+          if (issuer) certIssuer = toWinAnsi(issuer.value);
 
           const notAfter = cert.validity.notAfter;
           if (notAfter) {
@@ -157,11 +165,11 @@ app.post(
       const timeStr  = now.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
       const rows = [
-        { label: 'Firmado por',  value: certCN },
+        { label: 'Firmado por',  value: toWinAnsi(certCN) },
         { label: 'Fecha / Hora', value: `${dateStr}  ${timeStr}` },
-        ...(reason   ? [{ label: 'Razón',      value: reason }]   : []),
-        ...(location ? [{ label: 'Ubicación',  value: location }] : []),
-        ...(certIssuer ? [{ label: 'Emisor',   value: certIssuer }] : []),
+        ...(reason   ? [{ label: 'Razon',      value: toWinAnsi(reason) }]   : []),
+        ...(location ? [{ label: 'Ubicacion',  value: toWinAnsi(location) }] : []),
+        ...(certIssuer ? [{ label: 'Emisor',   value: toWinAnsi(certIssuer) }] : []),
         ...(certExpiry ? [{ label: 'Vigencia', value: `Hasta ${certExpiry}` }] : []),
       ];
 
