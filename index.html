@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Firma Digital de PDFs</title>
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <style>
+    /* ── Variables ──────────────────────────────────────────── */
+    :root {
+      --blue:        #003d82;
+      --blue-mid:    #0055b3;
+      --blue-light:  #e8f0fb;
+      --blue-glow:   rgba(0, 61, 130, 0.18);
+      --white:       #ffffff;
+      --bg:          #f4f6fa;
+      --surface:     #ffffff;
+      --border:      #d5dce8;
+      --text:        #1a2540;
+      --muted:       #6b7a99;
+      --success:     #1a8a4a;
+      --error:       #c0392b;
+      --radius:      10px;
+      --shadow:      0 2px 16px rgba(0,61,130,0.09);
+      --font:        'Georgia', 'Times New Roman', serif;
+      --font-ui:     'Segoe UI', system-ui, sans-serif;
+      --transition:  0.22s cubic-bezier(.4,0,.2,1);
+    }
+
+    /* ── Reset ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      background: var(--blue);
+      color: #fff;
+      padding: 0 32px;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    header h1 { font-family: var(--font); font-size: 1.15rem; font-weight: normal; letter-spacing: 0.3px; }
+    header h1 span { opacity: 0.6; font-size: 0.85em; margin-left: 6px; }
+
+    /* ── Layout principal ───────────────────────────────────── */
+    .app-layout {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 0;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ── Panel izquierdo: visor PDF ─────────────────────────── */
+    .viewer-panel {
+      background: #2d2d2d;
+      display: flex;
+      flex-direction: column;
+      min-height: calc(100vh - 58px);
+      position: relative;
+    }
+
+    .viewer-toolbar {
+      background: #1e1e1e;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 16px;
+      border-bottom: 1px solid #3a3a3a;
+    }
+    .viewer-toolbar .file-name {
+      flex: 1;
+      font-size: 0.8rem;
+      color: #aaa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .page-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: #ccc;
+    }
+    .page-nav button {
+      background: #333;
+      border: 1px solid #444;
+      color: #ddd;
+      width: 28px; height: 28px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background var(--transition);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .page-nav button:hover:not(:disabled) { background: #555; }
+    .page-nav button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #aaa;
+    }
+    .zoom-controls button {
+      background: #333;
+      border: 1px solid #444;
+      color: #ccc;
+      width: 24px; height: 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background var(--transition);
+    }
+    .zoom-controls button:hover { background: #555; }
+
+    /* ── Zona de drag-drop PDF ──────────────────────────────── */
+    .pdf-drop-zone {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background var(--transition);
+      padding: 32px;
+    }
+    .pdf-drop-zone.dragover { background: rgba(0,61,130,0.15); }
+    .pdf-drop-zone .drop-icon { font-size: 52px; margin-bottom: 16px; opacity: 0.5; }
+    .pdf-drop-zone p { color: #888; font-size: 0.95rem; text-align: center; line-height: 1.6; }
+    .pdf-drop-zone p strong { color: #bbb; display: block; font-size: 1.1rem; margin-bottom: 6px; }
+    .pdf-drop-zone .hint { font-size: 0.78rem; color: #666; margin-top: 10px; }
+
+    /* ── Canvas wrapper ─────────────────────────────────────── */
+    .canvas-area {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 24px;
+      display: none;
+    }
+    .canvas-wrapper {
+      position: relative;
+      display: inline-block;
+      cursor: crosshair;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.5);
+    }
+    #pdf-canvas {
+      display: block;
+    }
+    /* Overlay para la firma */
+    #sig-overlay {
+      position: absolute;
+      pointer-events: none;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+    .sig-box {
+      position: absolute;
+      border: 2px dashed #3a8fff;
+      background: rgba(0, 100, 220, 0.08);
+      border-radius: 3px;
+      pointer-events: none;
+      transition: opacity var(--transition);
+    }
+    .sig-box::before {
+      content: '↙ Firma aquí';
+      position: absolute;
+      top: -22px;
+      left: 0;
+      font-size: 11px;
+      color: #3a8fff;
+      white-space: nowrap;
+      font-family: var(--font-ui);
+      background: #1e1e1e;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    /* ── Panel derecho: formulario ──────────────────────────── */
+    .form-panel {
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .form-section {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .form-section:last-child { border-bottom: none; }
+
+    .section-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--blue-light);
+    }
+
+    /* ── Drop zone .p12 ─────────────────────────────────────── */
+    .p12-drop {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 18px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color var(--transition), background var(--transition);
+      background: #fafbfd;
+    }
+    .p12-drop:hover, .p12-drop.dragover {
+      border-color: var(--blue-mid);
+      background: var(--blue-light);
+    }
+    .p12-drop.loaded {
+      border-color: var(--success);
+      background: #f0fff6;
+    }
+    .p12-drop .drop-label { font-size: 0.82rem; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+    .p12-drop .p12-icon { font-size: 28px; }
+    .p12-drop .p12-name { font-size: 0.8rem; color: var(--success); font-weight: 600; margin-top: 4px; }
+
+    /* ── Inputs del formulario ──────────────────────────────── */
+    .field {
+      margin-bottom: 13px;
+    }
+    .field label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 5px;
+      letter-spacing: 0.3px;
+    }
+    .field input {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
+      font-size: 0.88rem;
+      font-family: var(--font-ui);
+      color: var(--text);
+      background: #fafbfd;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      outline: none;
+    }
+    .field input:focus {
+      border-color: var(--blue-mid);
+      box-shadow: 0 0 0 3px var(--blue-glow);
+      background: #fff;
+    }
+    .field input::placeholder { color: #bcc5d8; }
+
+    /* ── Posición de firma ──────────────────────────────────── */
+    .position-hint {
+      background: var(--blue-light);
+      border: 1px solid #c8d8f0;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 0.8rem;
+      color: var(--blue);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      line-height: 1.5;
+    }
+    .position-hint .hint-icon { font-size: 18px; flex-shrink: 0; }
+    .position-status {
+      margin-top: 10px;
+      font-size: 0.78rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+    .dot.active { background: var(--success); }
+    .dot.pending { background: #e0aa00; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Botón principal ────────────────────────────────────── */
+    .btn-sign {
+      width: 100%;
+      padding: 14px;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-sign:hover:not(:disabled) {
+      background: var(--blue-mid);
+      box-shadow: 0 4px 20px rgba(0,61,130,0.35);
+      transform: translateY(-1px);
+    }
+    .btn-sign:active:not(:disabled) { transform: translateY(0); }
+    .btn-sign:disabled { background: #a0b0c8; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-sign .btn-icon { font-size: 18px; }
+
+    /* Loading spinner */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast de notificaciones ────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #1a2540;
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 40px;
+      font-size: 0.85rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+      z-index: 9999;
+      transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), opacity 0.3s;
+      opacity: 0;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    #toast.error { background: var(--error); }
+    #toast.success { background: var(--success); }
+
+    /* ── Input file oculto ──────────────────────────────────── */
+    input[type="file"] { display: none; }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .app-layout { grid-template-columns: 1fr; }
+      .form-panel { border-left: none; border-top: 1px solid var(--border); }
+      .viewer-panel { min-height: 60vh; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <header>
+    <div class="logo-icon">📄</div>
+    <h1>FirmaDoc <span>· PDF Signer</span></h1>
+  </header>
+
+  <!-- ── Layout ──────────────────────────────────────────────── -->
+  <div class="app-layout">
+
+    <!-- ════════════ VISOR PDF ════════════ -->
+    <div class="viewer-panel" id="viewer-panel">
+
+      <!-- Toolbar (oculta hasta cargar PDF) -->
+      <div class="viewer-toolbar" id="viewer-toolbar" style="display:none">
+        <div class="file-name" id="file-name-label">—</div>
+        <div class="zoom-controls">
+          <button id="zoom-out" title="Alejar">−</button>
+          <span id="zoom-label">100%</span>
+          <button id="zoom-in" title="Acercar">+</button>
+        </div>
+        <div class="page-nav">
+          <button id="btn-prev" disabled>‹</button>
+          <span>Pág <strong id="page-current">1</strong> / <strong id="page-total">1</strong></span>
+          <button id="btn-next" disabled>›</button>
+        </div>
+      </div>
+
+      <!-- Drop zone inicial -->
+      <div class="pdf-drop-zone" id="pdf-drop-zone">
+        <div class="drop-icon">📂</div>
+        <p>
+          <strong>Arrastra tu PDF aquí</strong>
+          o haz click para seleccionar el archivo
+        </p>
+        <p class="hint">Soporta PDFs hasta 50 MB</p>
+      </div>
+      <input type="file" id="pdf-input" accept=".pdf" />
+
+      <!-- Área del canvas PDF -->
+      <div class="canvas-area" id="canvas-area">
+        <div class="canvas-wrapper" id="canvas-wrapper">
+          <canvas id="pdf-canvas"></canvas>
+          <div id="sig-overlay">
+            <div class="sig-box" id="sig-box" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /viewer-panel -->
+
+    <!-- ════════════ PANEL FORMULARIO ════════════ -->
+    <div class="form-panel">
+
+      <!-- ── 1. Posición de firma ──────────────────── -->
+      <div class="form-section">
+        <div class="section-title">① Posición de firma</div>
+        <div class="position-hint">
+          <span class="hint-icon">🖱️</span>
+          <span>Carga el PDF y <strong>haz click en la página</strong> donde deseas colocar la firma visual.</span>
+        </div>
+        <div class="position-status" id="pos-status">
+          <div class="dot pending" id="pos-dot"></div>
+          <span id="pos-label">Esperando selección en el PDF…</span>
+        </div>
+      </div>
+
+      <!-- ── 2. Certificado .p12 ──────────────────── -->
+      <div class="form-section">
+        <div class="section-title">② Certificado digital</div>
+
+        <div class="p12-drop" id="p12-drop">
+          <div class="p12-icon">🔐</div>
+          <div class="drop-label">Arrastra tu archivo <strong>.p12</strong><br>o haz click para seleccionarlo</div>
+          <div class="p12-name" id="p12-name" style="display:none"></div>
+        </div>
+        <input type="file" id="p12-input" accept=".p12,.pfx" />
+
+        <div class="field" style="margin-top:12px">
+          <label>Contraseña del certificado</label>
+          <input type="password" id="cert-password" placeholder="Contraseña del .p12" autocomplete="current-password" />
+        </div>
+      </div>
+
+      <!-- ── 3. Datos de la firma ──────────────────── -->
+      <div class="form-section">
+        <div class="section-title">③ Datos de la firma</div>
+
+        <div class="field">
+          <label>Nombre del firmante</label>
+          <input type="text" id="signer-name" placeholder="Juan Pérez" />
+        </div>
+        <div class="field">
+          <label>Razón / Motivo</label>
+          <input type="text" id="reason" placeholder="Aprobación del documento" />
+        </div>
+        <div class="field">
+          <label>Ubicación</label>
+          <input type="text" id="location" placeholder="Quito, Ecuador" />
+        </div>
+      </div>
+
+      <!-- ── 4. Acción ──────────────────────────────── -->
+      <div class="form-section">
+        <button class="btn-sign" id="btn-sign" disabled>
+          <span class="btn-icon">✍️</span>
+          <span id="btn-text">Firmar y descargar PDF</span>
+          <div class="spinner" id="spinner"></div>
+        </button>
+      </div>
+
+    </div><!-- /form-panel -->
+  </div><!-- /app-layout -->
+
+  <!-- Toast -->
+  <div id="toast"></div>
+
+  <!-- ═══════════════ JAVASCRIPT ═══════════════ -->
+  <script>
+    // ── PDF.js worker ────────────────────────────────────────
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    // ── Estado de la app ─────────────────────────────────────
+    const state = {
+      pdfFile:    null,
+      pdfDoc:     null,   // objeto PDF.js
+      p12File:    null,
+      currentPage: 1,
+      totalPages:  1,
+      scale:       1.2,
+      sigPos:      null,  // { xN, yN } normalizados
+      sigBox:      null,  // { x, y, w, h } en canvas px
+    };
+
+    // Tamaño de la caja de firma en fracción de página
+    const BOX_W_FRAC = 0.36;
+    const BOX_H_FRAC = 0.11;
+
+    // ── Helpers ──────────────────────────────────────────────
+    function showToast(msg, type = '') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'show ' + type;
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => { t.className = ''; }, 3500);
+    }
+
+    function setSignBtnState() {
+      const ok = state.pdfFile && state.p12File && state.sigPos;
+      document.getElementById('btn-sign').disabled = !ok;
+    }
+
+    // ── Renderizar página PDF ─────────────────────────────────
+    async function renderPage(pageNum) {
+      const page     = await state.pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: state.scale });
+      const canvas   = document.getElementById('pdf-canvas');
+      const ctx      = canvas.getContext('2d');
+      canvas.width   = viewport.width;
+      canvas.height  = viewport.height;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      document.getElementById('page-current').textContent = pageNum;
+      document.getElementById('btn-prev').disabled = pageNum <= 1;
+      document.getElementById('btn-next').disabled = pageNum >= state.totalPages;
+
+      // Redibuja la caja de firma si hay posición guardada
+      if (state.sigPos) drawSigBox(state.sigPos.xN, state.sigPos.yN, canvas);
+    }
+
+    // ── Cargar PDF ───────────────────────────────────────────
+    async function loadPDF(file) {
+      state.pdfFile = file;
+      const arrayBuf = await file.arrayBuffer();
+      state.pdfDoc   = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+      state.totalPages  = state.pdfDoc.numPages;
+      state.currentPage = 1;
+      state.sigPos = null;
+
+      document.getElementById('pdf-drop-zone').style.display = 'none';
+      document.getElementById('canvas-area').style.display   = 'flex';
+      document.getElementById('viewer-toolbar').style.display = 'flex';
+      document.getElementById('file-name-label').textContent  = file.name;
+      document.getElementById('page-total').textContent = state.totalPages;
+
+      await renderPage(1);
+      updateZoomLabel();
+      updatePosStatus();
+      setSignBtnState();
+    }
+
+    // ── Dibuja la caja de firma en el overlay ─────────────────
+    function drawSigBox(xN, yN, canvas) {
+      canvas = canvas || document.getElementById('pdf-canvas');
+      const box = document.getElementById('sig-box');
+
+      const bw = canvas.width  * BOX_W_FRAC;
+      const bh = canvas.height * BOX_H_FRAC;
+
+      // xN,yN es la esquina inferior-izquierda en coords normalizadas PDF (origen abajo)
+      // En canvas: top = (1 - yN - BOX_H_FRAC) * canvas.height
+      const canvasLeft = xN * canvas.width;
+      const canvasTop  = (1 - yN - BOX_H_FRAC) * canvas.height;
+
+      box.style.left   = canvasLeft + 'px';
+      box.style.top    = canvasTop  + 'px';
+      box.style.width  = bw + 'px';
+      box.style.height = bh + 'px';
+      box.style.display = 'block';
+
+      state.sigBox = { x: canvasLeft, y: canvasTop, w: bw, h: bh };
+    }
+
+    // ── Click en canvas → posición de firma ──────────────────
+    document.getElementById('canvas-wrapper').addEventListener('click', (e) => {
+      if (!state.pdfDoc) return;
+      const canvas = document.getElementById('pdf-canvas');
+      const rect   = canvas.getBoundingClientRect();
+
+      // Posición del click respecto al canvas (en píxeles del canvas renderizado)
+      const scaleRatio = canvas.width / rect.width;
+      const clickX = (e.clientX - rect.left) * scaleRatio;
+      const clickY = (e.clientY - rect.top)  * scaleRatio;
+
+      // Coordenadas normalizadas con origen arriba-izquierda
+      let xN = clickX / canvas.width;
+      let yN = (canvas.height - clickY) / canvas.height;  // flip: origen abajo
+
+      // Ajustar para que la caja no salga del PDF
+      xN = Math.max(0, Math.min(xN, 1 - BOX_W_FRAC));
+      yN = Math.max(0, Math.min(yN, 1 - BOX_H_FRAC));
+
+      // Situar esquina inferior-izquierda de la caja en el punto aproximado
+      xN = Math.max(0, xN - BOX_W_FRAC / 2);
+      yN = Math.max(0, yN - BOX_H_FRAC / 2);
+
+      state.sigPos = { xN, yN };
+      drawSigBox(xN, yN, canvas);
+      updatePosStatus(true);
+      setSignBtnState();
+    });
+
+    // ── Estado de posición ───────────────────────────────────
+    function updatePosStatus(set = false) {
+      const dot   = document.getElementById('pos-dot');
+      const label = document.getElementById('pos-label');
+      if (set && state.sigPos) {
+        dot.className = 'dot active';
+        label.textContent = `Posición seleccionada — página ${state.currentPage}`;
+      } else if (state.pdfFile) {
+        dot.className = 'dot pending';
+        label.textContent = 'Haz click en el PDF para posicionar la firma';
+      } else {
+        dot.className = 'dot';
+        label.textContent = 'Esperando selección en el PDF…';
+      }
+    }
+
+    // ── Zoom ─────────────────────────────────────────────────
+    function updateZoomLabel() {
+      document.getElementById('zoom-label').textContent = Math.round(state.scale * 100) + '%';
+    }
+    document.getElementById('zoom-in').addEventListener('click', async () => {
+      if (state.scale >= 3) return;
+      state.scale = Math.min(3, state.scale + 0.2);
+      updateZoomLabel();
+      if (state.pdfDoc) { state.sigPos = null; updatePosStatus(); await renderPage(state.currentPage); }
+    });
+    document.getElementById('zoom-out').addEventListener('click', async () => {
+      if (state.scale <= 0.4) return;
+      state.scale = Math.max(0.4, state.scale - 0.2);
+      updateZoomLabel();
+      if (state.pdfDoc) { state.sigPos = null; updatePosStatus(); await renderPage(state.currentPage); }
+    });
+
+    // ── Paginación ───────────────────────────────────────────
+    document.getElementById('btn-prev').addEventListener('click', async () => {
+      if (state.currentPage <= 1) return;
+      state.currentPage--;
+      state.sigPos = null;
+      updatePosStatus();
+      setSignBtnState();
+      await renderPage(state.currentPage);
+    });
+    document.getElementById('btn-next').addEventListener('click', async () => {
+      if (state.currentPage >= state.totalPages) return;
+      state.currentPage++;
+      state.sigPos = null;
+      updatePosStatus();
+      setSignBtnState();
+      await renderPage(state.currentPage);
+    });
+
+    // ── Drag & Drop PDF ──────────────────────────────────────
+    const pdfDrop = document.getElementById('pdf-drop-zone');
+    pdfDrop.addEventListener('click', () => document.getElementById('pdf-input').click());
+    pdfDrop.addEventListener('dragover', (e) => { e.preventDefault(); pdfDrop.classList.add('dragover'); });
+    pdfDrop.addEventListener('dragleave', () => pdfDrop.classList.remove('dragover'));
+    pdfDrop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      pdfDrop.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type === 'application/pdf') loadPDF(file);
+      else showToast('Por favor suelta un archivo PDF', 'error');
+    });
+    document.getElementById('pdf-input').addEventListener('change', (e) => {
+      if (e.target.files[0]) loadPDF(e.target.files[0]);
+    });
+
+    // ── Drag & Drop .p12 ─────────────────────────────────────
+    const p12Drop = document.getElementById('p12-drop');
+    function setP12File(file) {
+      if (!file || (!file.name.endsWith('.p12') && !file.name.endsWith('.pfx'))) {
+        showToast('Por favor selecciona un archivo .p12 o .pfx', 'error');
+        return;
+      }
+      state.p12File = file;
+      p12Drop.classList.add('loaded');
+      const nameEl = document.getElementById('p12-name');
+      nameEl.textContent = '✓ ' + file.name;
+      nameEl.style.display = 'block';
+      setSignBtnState();
+      showToast('Certificado cargado correctamente', 'success');
+    }
+
+    p12Drop.addEventListener('click', () => document.getElementById('p12-input').click());
+    p12Drop.addEventListener('dragover', (e) => { e.preventDefault(); p12Drop.classList.add('dragover'); });
+    p12Drop.addEventListener('dragleave', () => p12Drop.classList.remove('dragover'));
+    p12Drop.addEventListener('drop', (e) => {
+      e.preventDefault(); p12Drop.classList.remove('dragover');
+      setP12File(e.dataTransfer.files[0]);
+    });
+    document.getElementById('p12-input').addEventListener('change', (e) => setP12File(e.target.files[0]));
+
+    // ── Botón FIRMAR ──────────────────────────────────────────
+    document.getElementById('btn-sign').addEventListener('click', async () => {
+      if (!state.pdfFile || !state.p12File || !state.sigPos) {
+        showToast('Completa todos los pasos antes de firmar', 'error');
+        return;
+      }
+
+      // UI: loading
+      const btn      = document.getElementById('btn-sign');
+      const btnText  = document.getElementById('btn-text');
+      const spinner  = document.getElementById('spinner');
+      btn.disabled   = true;
+      btnText.textContent = 'Procesando firma…';
+      spinner.style.display = 'block';
+
+      try {
+        const formData = new FormData();
+        formData.append('pdf',        state.pdfFile);
+        formData.append('p12',        state.p12File);
+        formData.append('password',   document.getElementById('cert-password').value);
+        formData.append('signerName', document.getElementById('signer-name').value || 'Firmante');
+        formData.append('reason',     document.getElementById('reason').value);
+        formData.append('location',   document.getElementById('location').value);
+        formData.append('page',       state.currentPage);
+        formData.append('x',          state.sigPos.xN.toFixed(6));
+        formData.append('y',          state.sigPos.yN.toFixed(6));
+        formData.append('boxW',       BOX_W_FRAC.toFixed(4));
+        formData.append('boxH',       BOX_H_FRAC.toFixed(4));
+
+        const resp = await fetch('/sign', { method: 'POST', body: formData });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: 'Error desconocido' }));
+          throw new Error(err.error || `Error ${resp.status}`);
+        }
+
+        // Descargar PDF firmado
+        const blob = await resp.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = 'documento-firmado.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('¡PDF firmado y descargado exitosamente! ✓', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Error: ' + err.message, 'error');
+      } finally {
+        btn.disabled   = false;
+        btnText.textContent = 'Firmar y descargar PDF';
+        spinner.style.display = 'none';
+        setSignBtnState();
+      }
+    });
+  </script>
+
+</body>
+</html>
